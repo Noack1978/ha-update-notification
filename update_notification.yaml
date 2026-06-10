@@ -46,7 +46,7 @@ blueprint:
 triggers:
   - trigger: template
     value_template: >
-      {% set excluded = excluded_entities %}
+      {% set excluded = excluded_entities | default([]) %}
       {{ states.update
          | rejectattr('entity_id', 'in', excluded)
          | selectattr('state', 'eq', 'on')
@@ -55,7 +55,7 @@ triggers:
 
   - trigger: template
     value_template: >
-      {% set excluded = excluded_entities %}
+      {% set excluded = excluded_entities | default([]) %}
       {{ states.update
          | rejectattr('entity_id', 'in', excluded)
          | selectattr('state', 'eq', 'on')
