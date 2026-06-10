@@ -1,0 +1,135 @@
+blueprint:
+  name: Update-Benachrichtigung
+  description: >
+    Benachrichtigt über verfügbare HA-Updates (Add-ons, Integrationen,
+    Firmware). Neue Update-Entitäten werden automatisch erkannt – nur
+    Ausnahmen müssen gepflegt werden.
+  domain: automation
+  author: Noack1978
+  input:
+    notify_devices:
+      name: Zu benachrichtigende Geräte
+      description: >
+        Ein oder mehrere Geräte, die eine Push-Benachrichtigung erhalten sollen.
+      selector:
+        device:
+          integration: mobile_app
+          multiple: true
+
+    excluded_entities:
+      name: Auszuschließende Update-Entitäten
+      description: >
+        Diese Update-Entitäten werden bei der Zählung ignoriert
+        (z. B. HA Core, OS, Supervisor).
+      default: []
+      selector:
+        entity:
+          domain: update
+          multiple: true
+
+    notify_time:
+      name: Tägliche Erinnerungszeit
+      description: Uhrzeit, zu der täglich an ausstehende Updates erinnert wird.
+      default: "09:00:00"
+      selector:
+        time: {}
+
+    persistent_notification:
+      name: Persistente Benachrichtigung
+      description: >
+        Zusätzlich eine persistente Benachrichtigung in der HA-Oberfläche
+        anzeigen.
+      default: true
+      selector:
+        boolean: {}
+
+triggers:
+  - trigger: template
+    value_template: >
+      {% set excluded = excluded_entities %}
+      {{ states.update
+         | rejectattr('entity_id', 'in', excluded)
+         | selectattr('state', 'eq', 'on')
+         | list | count > 0 }}
+    id: Update
+
+  - trigger: template
+    value_template: >
+      {% set excluded = excluded_entities %}
+      {{ states.update
+         | rejectattr('entity_id', 'in', excluded)
+         | selectattr('state', 'eq', 'on')
+         | list | count == 0 }}
+    id: Aktuell
+
+  - trigger: time
+    at: !input notify_time
+    id: Zeit
+
+variables:
+  excluded_entities: !input excluded_entities
+  persistent_notification: !input persistent_notification
+  notify_devices: !input notify_devices
+  update_count: >
+    {% set excluded = excluded_entities %}
+    {{ states.update
+       | rejectattr('entity_id', 'in', excluded)
+       | selectattr('state', 'eq', 'on')
+       | list | count }}
+
+conditions: []
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id:
+              - Update
+              - Zeit
+          - condition: template
+            value_template: "{{ update_count | int > 0 }}"
+        sequence:
+          - repeat:
+              for_each: "{{ notify_devices }}"
+              sequence:
+                - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+                  data:
+                    title: HA Updates
+                    message: "Es sind {{ update_count }} Updates verfügbar!"
+                    data:
+                      tag: ha_updates
+          - if:
+              - condition: template
+                value_template: "{{ persistent_notification }}"
+            then:
+              - action: persistent_notification.create
+                data:
+                  title: HA Updates
+                  message: "Es sind {{ update_count }} Updates verfügbar!"
+                  notification_id: ha_updates
+
+      - conditions:
+          - condition: trigger
+            id:
+              - Aktuell
+          - condition: template
+            value_template: "{{ update_count | int == 0 }}"
+        sequence:
+          - repeat:
+              for_each: "{{ notify_devices }}"
+              sequence:
+                - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+                  data:
+                    title: HA Updates
+                    message: clear_notification
+                    data:
+                      tag: ha_updates
+          - if:
+              - condition: template
+                value_template: "{{ persistent_notification }}"
+            then:
+              - action: persistent_notification.dismiss
+                data:
+                  notification_id: ha_updates
+
+mode: single
